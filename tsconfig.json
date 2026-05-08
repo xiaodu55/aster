@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "dom"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-jsx",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "paths": {
+      "@aster/core": ["./packages/core/src"],
+      "@aster/core/*": ["./packages/core/src/*"],
+      "@aster/shared": ["./packages/shared/src"],
+      "@aster/i18n": ["./packages/i18n/src"],
+      "@aster/ui": ["./packages/ui/src"],
+      "@aster/pi-extension": ["./packages/pi-extension/src"],
+      "@aster/longbridge-tools": ["./packages/longbridge-tools/src"],
+      "@aster/skill-hub": ["./packages/skill-hub/src"]
+    },
+    "types": ["bun-types"]
+  },
+  "include": ["packages/*/src", "apps/*/src"],
+  "exclude": ["node_modules", "dist"]
+}
