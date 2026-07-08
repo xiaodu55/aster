@@ -1,0 +1,147 @@
+import { atom } from 'jotai';
+import { atomFamily } from 'jotai/utils';
+import type { Quote } from '@aster/core';
+import type { AsterClient } from '../client';
+
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
+interface QuoteCache {
+  data: Quote | null;
+  timestamp: number;
+  loading: boolean;
+  error: string | null;
+  /** True when `data` is built-in sample data (no live provider available). */
+  isDemo: boolean;
+}
+
+// Quote cache atom family
+export const quoteCacheAtomFamily = atomFamily((symbol: string) =>
+  atom<QuoteCache>({
+    data: null,
+    timestamp: 0,
+    loading: false,
+    error: null,
+    isDemo: false,
+  })
+);
+
+// Watchlist atoms
+export const watchlistAtom = atom<string[]>(['AAPL.US', 'TSLA.US', 'NVDA.US']);
+
+/** Provider names actually stamped on watchlist quotes, for the §34 freshness line. */
+export const watchlistMarketSourceAtom = atom<{ providerName?: string; delayed: boolean }>((get) => {
+  const watchlist = get(watchlistAtom);
+  const names: string[] = [];
+  let delayed = false;
+  for (const symbol of watchlist) {
+    const cache = get(quoteCacheAtomFamily(symbol));
+    if (cache.error || cache.isDemo) continue;
+    const source = cache.data?.source;
+    if (!source?.providerName) continue;
+    if (!names.includes(source.providerName)) names.push(source.providerName);
+    if (source.delayed) delayed = true;
+  }
+  return {
+    providerName: names.length > 0 ? names.join(', ') : undefined,
+    delayed,
+  };
+});
+
+/** Newest quote timestamp (epoch seconds) across the watchlist, for the §34 freshness line. */
+export const watchlistLatestTimestampAtom = atom<number | undefined>((get) => {
+  const watchlist = get(watchlistAtom);
+  let latest: number | undefined;
+  for (const symbol of watchlist) {
+    const cache = get(quoteCacheAtomFamily(symbol));
+    if (cache.error || cache.isDemo) continue;
+    const ts = cache.data?.timestamp;
+    if (ts && (!latest || ts > latest)) latest = ts;
+  }
+  return latest;
+});
+
+// Add symbol to watchlist
+export const addToWatchlistAtom = atom(
+  null,
+  (_get, set, symbol: string) => {
+    set(watchlistAtom, (list) => {
+      if (list.includes(symbol)) return list;
+      return [...list, symbol];
+    });
+  }
+);
+
+// Remove symbol from watchlist
+export const removeFromWatchlistAtom = atom(
+  null,
+  (_get, set, symbol: string) => {
+    set(watchlistAtom, (list) => list.filter((s) => s !== symbol));
+  }
+);
+
+// Fetch quote action
+export const fetchQuoteAtom = atom(
+  null,
+  async (_get, set, input: { client: AsterClient; symbol: string }) => {
+    const { client, symbol } = input;
+    // Set loading state
+    set(quoteCacheAtomFamily(symbol), (cache) => ({
+      ...cache,
+      loading: true,
+      error: null,
+    }));
+
+    try {
+      const result = await client.market.getQuote(symbol);
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      const quote = result.data;
+
+      set(quoteCacheAtomFamily(symbol), {
+        data: quote,
+        timestamp: Date.now(),
+        loading: false,
+        error: null,
+        isDemo: false,
+      });
+
+      return quote;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fetch quote';
+      // A failed market-data request is unavailable, never an implicit demo.
+      // Clear prior values too, so a failed refresh cannot look current.
+      set(quoteCacheAtomFamily(symbol), {
+        data: null,
+        isDemo: false,
+        timestamp: 0,
+        loading: false,
+        error: errorMessage,
+      });
+      return null;
+    }
+  }
+);
+
+// Check if quote cache is stale
+export const isQuoteStaleAtom = atomFamily((symbol: string) =>
+  atom((get) => {
+    const cache = get(quoteCacheAtomFamily(symbol));
+    if (!cache.data) return true;
+    return Date.now() - cache.timestamp > CACHE_TTL;
+  })
+);
+
+/**
+ * True when every watchlist symbol currently renders sample data (the live
+ * provider was unavailable for all of them). Drives the `DemoBadge` on the
+ * watchlist/movers surfaces. Empty watchlist → false (nothing is demo).
+ */
+export const watchlistQuotesAreDemoAtom = atom<boolean>((get) => {
+  const watchlist = get(watchlistAtom);
+  if (watchlist.length === 0) return false;
+  return watchlist.every((symbol) => {
+    const cache = get(quoteCacheAtomFamily(symbol));
+    return cache.data != null && cache.isDemo;
+  });
+});
